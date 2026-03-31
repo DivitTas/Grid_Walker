@@ -10,16 +10,16 @@ Grid Walk Environment Implementation.
 A simple test environment that echoes back messages sent to it.
 Perfect for testing HTTP server infrastructure.
 """
-
+import random
 from uuid import uuid4
 
 from openenv.core.env_server.interfaces import Environment
 from openenv.core.env_server.types import State
 
 try:
-    from ..models import GridWalkAction, GridWalkObservation
+    from ..models import GridWalkAction, GridWalkObservation, Actions
 except ImportError:
-    from models import GridWalkAction, GridWalkObservation
+    from models import GridWalkAction, GridWalkObservation, Actions
 
 
 class GridWalkEnvironment(Environment):
@@ -44,11 +44,19 @@ class GridWalkEnvironment(Environment):
     # When True, multiple WebSocket clients can connect simultaneously, each
     # getting their own environment instance (when using factory mode in app.py).
     SUPPORTS_CONCURRENT_SESSIONS: bool = True
+    GRID_SIZE = 10
+    MAX_STEPS = 100
 
     def __init__(self):
         """Initialize the grid_walk environment."""
         self._state = State(episode_id=str(uuid4()), step_count=0)
         self._reset_count = 0
+        self.agent_row = 0
+        self.agent_col = 0
+        self.goal_row = 0
+        self.goal_col = 0
+        self.obstacles = set()
+
 
     def reset(self) -> GridWalkObservation:
         """
@@ -59,38 +67,83 @@ class GridWalkEnvironment(Environment):
         """
         self._state = State(episode_id=str(uuid4()), step_count=0)
         self._reset_count += 1
+        self.agent_col = 0
+        self.agent_row = 0
+        self.goal_row = random.randint(0,9)
+        self.goal_col = random.randint(0,9)
+        while(self.goal_col ==0 and self.goal_row ==0):
+            self.goal_row = random.randint(0,9)
+            self.goal_col = random.randint(0,9)
+        num_obstacles = random.randint(1,10)
+        self.obstacles = set()
+        while len(self.obstacles) < num_obstacles:
+            obs_row = random.randint(0,9)
+            obs_col = random.randint(0,9)
+
+            if (obs_row,obs_col) == (0,0):
+                continue
+            if (obs_row,obs_col) == (self.goal_row,self.goal_col):
+                continue
+            self.obstacles.add((obs_row,obs_col))
 
         return GridWalkObservation(
-            echoed_message="Grid Walk environment ready!",
-            message_length=0,
+            agent_row_position = self.agent_row,
+            agent_col_position = self.agent_col,
+            goal_row_position = self.goal_row,
+            goal_col_position = self.goal_col,
             done=False,
-            reward=0.0,
+            reward = 0.0,
         )
 
     def step(self, action: GridWalkAction) -> GridWalkObservation:  # type: ignore[override]
         """
-        Execute a step in the environment by echoing the message.
+        Execute a step in the environment by moving in a direction.
 
         Args:
-            action: GridWalkAction containing the message to echo
+            action: GridWalkAction containing the direction to move
 
         Returns:
-            GridWalkObservation with the echoed message and its length
+            GridWalkObservation with the goal position and agent position
         """
         self._state.step_count += 1
 
-        message = action.message
-        length = len(message)
+        
+        direction = {
+            Actions.UP: (-1,0),
+            Actions.DOWN: (1,0),
+            Actions.LEFT: (0,-1),
+            Actions.RIGHT: (0,1)
+        }
+        delta_row, delta_col = direction[action.action]
+        new_row = self.agent_row + delta_row
+        new_col = self.agent_col + delta_col
+        IS_VALID = True
+        done = False
+        reward = 0
+        if new_row<0 or new_row>= self.GRID_SIZE or new_col<0 or new_col>=self.GRID_SIZE:
+            IS_VALID=False
+        if (new_row,new_col) in self.obstacles:
+            IS_VALID=False
+        if(IS_VALID):
+            self.agent_col = new_col
+            self.agent_row = new_row
+            reward = -0.01
+        else:
+            reward = -0.1
+              
+        if self.agent_row == self.goal_row and self.agent_col == self.goal_col:
+            reward = 1.0
+            done = True
 
-        # Simple reward: longer messages get higher rewards
-        reward = length * 0.1
-
+        if self.state.step_count >= self.MAX_STEPS:
+            done = True
         return GridWalkObservation(
-            echoed_message=message,
-            message_length=length,
-            done=False,
+            agent_row_position = self.agent_row,
+            agent_col_position = self.agent_col,
+            goal_row_position = self.goal_row,
+            goal_col_position = self.goal_col,
+            done=done,
             reward=reward,
-            metadata={"original_message": message, "step": self._state.step_count},
         )
 
     @property

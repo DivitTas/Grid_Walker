@@ -12,7 +12,7 @@ from openenv.core import EnvClient
 from openenv.core.client_types import StepResult
 from openenv.core.env_server.types import State
 
-from .models import GridWalkAction, GridWalkObservation
+from .models import GridWalkAction, GridWalkObservation, Actions
 
 
 class GridWalkEnv(
@@ -46,7 +46,7 @@ class GridWalkEnv(
 
     def _step_payload(self, action: GridWalkAction) -> Dict:
         """
-        Convert GridWalkAction to JSON payload for step message.
+        Convert GridWalkAction to JSON payload for step direction.
 
         Args:
             action: GridWalkAction instance
@@ -55,7 +55,7 @@ class GridWalkEnv(
             Dictionary representation suitable for JSON encoding
         """
         return {
-            "message": action.message,
+            "action": action.action.name,
         }
 
     def _parse_result(self, payload: Dict) -> StepResult[GridWalkObservation]:
@@ -70,11 +70,13 @@ class GridWalkEnv(
         """
         obs_data = payload.get("observation", {})
         observation = GridWalkObservation(
-            echoed_message=obs_data.get("echoed_message", ""),
-            message_length=obs_data.get("message_length", 0),
-            done=payload.get("done", False),
-            reward=payload.get("reward"),
-            metadata=obs_data.get("metadata", {}),
+            agent_row_position = obs_data.get("agent_row_position",0),
+            agent_col_position = obs_data.get("agent_col_position",0),
+            goal_row_position = obs_data.get("goal_row_position",0),
+            goal_col_position = obs_data.get("goal_col_position",0),
+            done = payload.get("done",False),
+            reward = payload.get("reward"),
+            metadata = obs_data.get("metadata,{}"),
         )
 
         return StepResult(

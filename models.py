@@ -7,21 +7,28 @@
 """
 Data models for the Grid Walk Environment.
 
-The grid_walk environment is a simple test environment that echoes back messages.
+The grid_walk environment is a simple environment that navigates a 2D grid with obstacles to reach a goal square.
 """
 
 from openenv.core.env_server.types import Action, Observation
 from pydantic import Field
+from enum import Enum
 
+class Actions(Enum):
+    UP = 0
+    RIGHT = 1
+    DOWN = 2
+    LEFT = 3
 
 class GridWalkAction(Action):
-    """Action for the Grid Walk environment - just a message to echo."""
-
-    message: str = Field(..., description="Message to echo back")
+    """Action for the Grid Walk environment - Move in specified direction (Up, Down, Left, Right)."""
+    action: Actions = Field(...,description="Direction to move") 
 
 
 class GridWalkObservation(Observation):
-    """Observation from the Grid Walk environment - the echoed message."""
+    """Observation from the Grid Walk environment - the agent and goal position."""
 
-    echoed_message: str = Field(default="", description="The echoed message")
-    message_length: int = Field(default=0, description="Length of the echoed message")
+    agent_row_position :int = Field(...,description="Agent's current row coordinate")
+    agent_col_position :int = Field(...,description="Agent's current column coordinate")
+    goal_row_position : int = Field(...,description="Goal row coordinate")
+    goal_col_position : int = Field(...,description="Goal column coordinate")

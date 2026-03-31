@@ -13,32 +13,37 @@ tags:
 
 # Grid Walk Environment
 
-A simple test environment that echoes back messages. Perfect for testing the env APIs as well as demonstrating environment usage patterns.
+A reinforcement learning environment where an agent navigates a 10×10 grid to reach a goal position while avoiding obstacles. The agent can move in four directions (UP, DOWN, LEFT, RIGHT) and receives rewards based on its actions.
 
 ## Quick Start
 
 The simplest way to use the Grid Walk environment is through the `GridWalkEnv` class:
 
 ```python
-from grid_walk import GridWalkAction, GridWalkEnv
+from grid_walk import GridWalkAction, GridWalkEnv, Actions
 
 try:
     # Create environment from Docker image
     grid_walkenv = GridWalkEnv.from_docker_image("grid_walk-env:latest")
 
-    # Reset
+    # Reset the environment
     result = grid_walkenv.reset()
-    print(f"Reset: {result.observation.echoed_message}")
+    print(f"Agent starts at: ({result.observation.agent_row_position}, {result.observation.agent_col_position})")
+    print(f"Goal location: ({result.observation.goal_row_position}, {result.observation.goal_col_position})")
 
-    # Send multiple messages
-    messages = ["Hello, World!", "Testing echo", "Final message"]
+    # Navigate towards the goal
+    actions = [Actions.RIGHT, Actions.DOWN, Actions.RIGHT, Actions.DOWN]
 
-    for msg in messages:
-        result = grid_walkenv.step(GridWalkAction(message=msg))
-        print(f"Sent: '{msg}'")
-        print(f"  → Echoed: '{result.observation.echoed_message}'")
-        print(f"  → Length: {result.observation.message_length}")
+    for action in actions:
+        result = grid_walkenv.step(GridWalkAction(action=action))
+        print(f"Action: {action.name}")
+        print(f"  → Agent position: ({result.observation.agent_row_position}, {result.observation.agent_col_position})")
         print(f"  → Reward: {result.reward}")
+        print(f"  → Done: {result.observation.done}")
+        
+        if result.observation.done:
+            print("Episode complete!")
+            break
 
 finally:
     # Always clean up
@@ -120,21 +125,28 @@ The deployed space includes:
 
 ### Action
 **GridWalkAction**: Contains a single field
-- `message` (str) - The message to echo back
+- `action` (Actions enum) - Direction to move: UP, DOWN, LEFT, or RIGHT
 
 ### Observation
-**GridWalkObservation**: Contains the echo response and metadata
-- `echoed_message` (str) - The message echoed back
-- `message_length` (int) - Length of the message
-- `reward` (float) - Reward based on message length (length × 0.1)
-- `done` (bool) - Always False for echo environment
-- `metadata` (dict) - Additional info like step count
+**GridWalkObservation**: Contains the agent's state and environment information
+- `agent_row_position` (int) - Agent's current row coordinate (0-9)
+- `agent_col_position` (int) - Agent's current column coordinate (0-9)
+- `goal_row_position` (int) - Goal's row coordinate (0-9)
+- `goal_col_position` (int) - Goal's column coordinate (0-9)
+- `reward` (float) - Reward received for the current step
+- `done` (bool) - Whether the episode has ended
 
-### Reward
-The reward is calculated as: `message_length × 0.1`
-- "Hi" → reward: 0.2
-- "Hello, World!" → reward: 1.3
-- Empty message → reward: 0.0
+### Reward Structure
+- **Valid move**: -0.01 (encourages efficiency)
+- **Invalid move** (wall or obstacle): -0.1 (penalty)
+- **Reaching goal**: +1.0 (success!)
+- Episode ends after 100 steps or when goal is reached
+
+### Grid Layout
+- **Size**: 10×10 grid (rows and columns indexed 0-9)
+- **Start position**: Agent always starts at (0, 0)
+- **Goal position**: Randomly placed, never at start position
+- **Obstacles**: 1-10 obstacles randomly placed, avoiding start and goal positions
 
 ## Advanced Usage
 
@@ -143,14 +155,14 @@ The reward is calculated as: `message_length × 0.1`
 If you already have a Grid Walk environment server running, you can connect directly:
 
 ```python
-from grid_walk import GridWalkEnv
+from grid_walk import GridWalkEnv, GridWalkAction, Actions
 
 # Connect to existing server
 grid_walkenv = GridWalkEnv(base_url="<ENV_HTTP_URL_HERE>")
 
 # Use as normal
 result = grid_walkenv.reset()
-result = grid_walkenv.step(GridWalkAction(message="Hello!"))
+result = grid_walkenv.step(GridWalkAction(action=Actions.RIGHT))
 ```
 
 Note: When connecting to an existing server, `grid_walkenv.close()` will NOT stop the server.
@@ -160,16 +172,17 @@ Note: When connecting to an existing server, `grid_walkenv.close()` will NOT sto
 The client supports context manager usage for automatic connection management:
 
 ```python
-from grid_walk import GridWalkAction, GridWalkEnv
+from grid_walk import GridWalkAction, GridWalkEnv, Actions
 
 # Connect with context manager (auto-connects and closes)
 with GridWalkEnv(base_url="http://localhost:8000") as env:
     result = env.reset()
-    print(f"Reset: {result.observation.echoed_message}")
-    # Multiple steps with low latency
-    for msg in ["Hello", "World", "!"]:
-        result = env.step(GridWalkAction(message=msg))
-        print(f"Echoed: {result.observation.echoed_message}")
+    print(f"Start: ({result.observation.agent_row_position}, {result.observation.agent_col_position})")
+    
+    # Navigate the grid
+    for action in [Actions.RIGHT, Actions.DOWN, Actions.RIGHT]:
+        result = env.step(GridWalkAction(action=action))
+        print(f"Position: ({result.observation.agent_row_position}, {result.observation.agent_col_position}), Reward: {result.reward}")
 ```
 
 The client uses WebSocket connections for:
@@ -195,19 +208,28 @@ app = create_app(
 Then multiple clients can connect simultaneously:
 
 ```python
-from grid_walk import GridWalkAction, GridWalkEnv
+from grid_walk import GridWalkAction, GridWalkEnv, Actions
 from concurrent.futures import ThreadPoolExecutor
+import random
 
 def run_episode(client_id: int):
     with GridWalkEnv(base_url="http://localhost:8000") as env:
         result = env.reset()
-        for i in range(10):
-            result = env.step(GridWalkAction(message=f"Client {client_id}, step {i}"))
-        return client_id, result.observation.message_length
+        total_reward = 0
+        
+        while not result.observation.done:
+            # Simple random policy
+            action = random.choice([Actions.UP, Actions.DOWN, Actions.LEFT, Actions.RIGHT])
+            result = env.step(GridWalkAction(action=action))
+            total_reward += result.reward
+            
+        return client_id, total_reward
 
 # Run 4 episodes concurrently
 with ThreadPoolExecutor(max_workers=4) as executor:
     results = list(executor.map(run_episode, range(4)))
+    for client_id, total_reward in results:
+        print(f"Client {client_id}: Total reward = {total_reward}")
 ```
 
 ## Development & Testing
@@ -217,15 +239,16 @@ with ThreadPoolExecutor(max_workers=4) as executor:
 Test the environment logic directly without starting the HTTP server:
 
 ```bash
-# From the server directory
+# From the project root
 python3 server/grid_walk_environment.py
 ```
 
 This verifies that:
-- Environment resets correctly
-- Step executes actions properly
-- State tracking works
-- Rewards are calculated correctly
+- Environment resets correctly with agent at (0,0) and random goal/obstacles
+- Step executes movement actions properly
+- Invalid moves (walls/obstacles) are handled with appropriate penalties
+- Goal reaching terminates the episode with positive reward
+- State tracking works across multiple steps
 
 ### Running Locally
 
